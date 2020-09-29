@@ -1,3 +1,11 @@
+from sympy import *
+from sympy.solvers import solve
+from math import exp
+from scipy.optimize import minimize, minimize_scalar
+
+import numpy as np
+import math
+
 def generate_elementary_prices(srl, periods=10):
     # srl is the short rate lattice
     P = [[1]]
@@ -202,3 +210,107 @@ def reduce_swap(fixed_rate, short_rate_lattice, start=1, periods=10, qu=.5, qd=.
 
 
     return swap_lattice
+
+
+class BlackDermanToy():
+    """ Black-Derman-Toy Model
+    The provided b will be assumed to be the same one for all b_i
+    """
+    def __init__(self, spot_rates, b=0.05, q=0.5):
+        """ initialize the black-derman-toy model
+        spot_rates: list of rates to callibrate the model to
+        """
+        self.spot_rates = spot_rates
+        self.short_rates = []
+        self.a = []
+        self.b = b
+        self.P = [[1]]
+        self.q = q    # useless, everything is assuming q=0.5
+
+    def calibrate(self):
+        """ Iterate from 1 to len(spot_rates) - 1 and and callibrate a_i"""        
+        for i in range(len(self.spot_rates)):
+            a_i = symbols(f'a_{i+1}', real=True)
+            
+            # there will always been a diagonal and straight element
+            diag = self.get_ep(i, 0, a_i)
+            straight = self.get_ep(i, i, a_i)
+            disc = 1/(1+self.spot_rates[i])**(i+1)
+            
+            # middle only exists if we are at element 1, meaning we are
+            # calculating element 2 (has a single middle element)
+            middle = []
+            for j in range(i):
+                eq_ = self.get_ep(i, j, a_i) + self.get_ep(i, j + 1, a_i)
+                middle.append(eq_)
+            
+            # combine diag straight and put the middle equations in the middle
+            equations = [straight] + middle + [diag]
+            
+            # solve the equations    
+            def func(x):
+                # this function makes things passable to optimizer
+                to_solve = sum(equations) - disc
+                res = to_solve.subs(a_i, x)
+                return np.float64(abs(res))
+            
+            min_res = minimize_scalar(func, method='brent', tol=1e-8)
+
+            # get the actual elementary values by sub
+            elem_val = []
+            for e in equations:
+                elem_val.append(e.subs(a_i, min_res.x))
+            self.P.append(elem_val)
+            self.a.append(min_res.x)
+
+        self.get_short_rate_lattice()    
+        return self.a
+            
+    def get_short_rate_lattice(self):
+        for i in range(len(self.a)):
+            # append to the short rate lattice
+            period_short_rates = []
+            for j in range(i + 1):
+                period_short_rates.append(self.short_rate(self.a[i], j))
+            if period_short_rates: 
+                self.short_rates.append(period_short_rates)
+
+    def calculate_spot_rates(self):
+        """ After calibration, calculate the actual
+        Spot rate, see what results u get and compare to the
+        provided values
+        """
+        calc_rates = []
+        totals = []
+        for i in range(1, len(self.P)):
+            total = sum(self.P[i])
+            totals.append(total)
+
+            total = (1/total)**(1/(i)) - 1
+            calc_rates.append(total)
+            
+        return calc_rates, totals
+    
+    def verify_correctness(self):
+        """ Compares provided spot rates to ones calculated based on 
+        Elementary prices that were calculated using sovled a_i
+        """
+        rates, _ = self.calculate_spot_rates()
+        y = np.array([x for x in rates], dtype=np.float64)
+        y_ = np.array([x for x in self.spot_rates], dtype=np.float64)
+        return all(np.isclose(y, y_, atol=1e-4))
+        
+    def short_rate(self, a_i, j):
+        """ Get the short rate given some a_i, j.
+        Since the a_i is being calibrated for, it is provided .
+        Rate is calculated from a_i*exp(b_i*j)
+        """
+        return a_i*exp(self.b*j)
+        
+    def get_ep(self, i, j, a_i):
+        """ Returns a sumpy equation that can then be combined
+        with others, and be solved.
+        will be discounted for calculation in the next period i.e.
+        if at period i, will discount by rate from i to i+1
+        """
+        return self.P[i][j] / (2*(1+self.short_rate(a_i, j)))
