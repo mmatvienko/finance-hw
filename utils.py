@@ -246,15 +246,15 @@ class BlackDermanToy():
             
             # combine diag straight and put the middle equations in the middle
             equations = [straight] + middle + [diag]
-            
+
             # solve the equations    
             def func(x):
                 # this function makes things passable to optimizer
-                to_solve = sum(equations) - disc
+                to_solve = (sum(equations) - disc)**2
                 res = to_solve.subs(a_i, x)
-                return np.float64(abs(res))
+                return np.float64(res)
             
-            min_res = minimize_scalar(func, method='brent', tol=1e-8)
+            min_res = minimize_scalar(func, method='brent')
 
             # get the actual elementary values by sub
             elem_val = []
@@ -263,7 +263,7 @@ class BlackDermanToy():
             self.P.append(elem_val)
             self.a.append(min_res.x)
 
-        self.get_short_rate_lattice()    
+        self.get_short_rate_lattice()
         return self.a
             
     def get_short_rate_lattice(self):
