@@ -254,7 +254,7 @@ class BlackDermanToy():
                 res = to_solve.subs(a_i, x)
                 return np.float64(res)
             
-            min_res = minimize_scalar(func, method='brent')
+            min_res = minimize_scalar(func, method='golden')
 
             # get the actual elementary values by sub
             elem_val = []
